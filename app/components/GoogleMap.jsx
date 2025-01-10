@@ -1,34 +1,75 @@
 "use client";
-import { Map, GoogleApiWrapper, Marker } from "google-maps-react";
+import { useState, useEffect } from "react";
+import { GoogleMap, DirectionsRenderer } from "@react-google-maps/api";
+import { Box } from "@mui/material";
 
-const mapStyles = {
-	width: "100%",
-	height: "50%",
-};
+const MapComponent = ({ directions }) => {
+	const [map, setMap] = useState(null);
+	const [directionsResponse, setDirectionsResponse] = useState(null);
 
-const GoogleMap = () => {
+	const containerStyle = {
+		width: "100%",
+		height: "400px",
+		minHeight: "400px",
+		maxHeight: "400px",
+	};
+
+	const center = {
+		lat: 37.7749,
+		lng: -122.4194,
+	};
+
+	const mapOptions = {
+		mapId: process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID,
+		disableDefaultUI: false,
+		clickableIcons: true,
+	};
+
+	useEffect(() => {
+		if (directions) {
+			setDirectionsResponse(directions);
+		}
+	}, [directions]);
+
+	const onLoad = (map) => {
+		setMap(map);
+	};
+
+	const onUnmount = () => {
+		setMap(null);
+	};
+
 	return (
-		//The <Map></Map> need the following props
-		//initialCenter={} will be the center on the Map
-		<Map
-			google={window.google}
-			zoom={17}
-			style={mapStyles}
-			initialCenter={{
-				lat: 19.020145856138136,
-				lng: -98.24006775697993,
+		<Box
+			sx={{
+				width: "100%",
+				height: "400px",
+				minHeight: "400px",
+				maxHeight: "400px",
+				overflow: "hidden",
 			}}>
-			<Marker
-				position={{
-					lat: 19.020145856138136,
-					lng: -98.24006775697993,
-				}}
-			/>
-		</Map>
+			<GoogleMap
+				mapContainerStyle={containerStyle}
+				center={center}
+				zoom={12}
+				onLoad={onLoad}
+				onUnmount={onUnmount}
+				options={mapOptions}>
+				{directionsResponse && (
+					<DirectionsRenderer
+						directions={directionsResponse}
+						options={{
+							suppressMarkers: false,
+							polylineOptions: {
+								strokeColor: "#2196F3",
+								strokeWeight: 6,
+							},
+						}}
+					/>
+				)}
+			</GoogleMap>
+		</Box>
 	);
 };
 
-//Here we use GoogleApiWrapper() that we import of the package
-export default GoogleApiWrapper({
-	apiKey: process.env.GOOGLE_MAPS_API_KEY,
-})(GoogleMap);
+export default MapComponent;
