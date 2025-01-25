@@ -1,119 +1,135 @@
 "use client";
-import { useEffect, useRef } from "react";
-import { TextField } from "@mui/material";
+import { useState, useEffect, useRef } from "react";
+import { TextField, Autocomplete, CircularProgress } from "@mui/material";
 
-const PlacesAutocomplete = ({ label, value, onChange }) => {
-	const inputRef = useRef(null);
-	const autoCompleteRef = useRef(null);
+const PlacesAutocomplete = ({
+	label,
+	value,
+	onChange,
+	onCoordinatesChange,
+	name,
+}) => {
+	const [inputValue, setInputValue] = useState("");
+	const [options, setOptions] = useState([]);
+	const [loading, setLoading] = useState(false);
+	const debounceTimer = useRef(null);
 
 	useEffect(() => {
-		const initializeAutocomplete = () => {
-			if (
-				!autoCompleteRef.current &&
-				inputRef.current &&
-				window.google &&
-				window.google.maps &&
-				window.google.maps.places
-			) {
-				try {
-					autoCompleteRef.current = new window.google.maps.places.Autocomplete(
-						inputRef.current,
-						{
-							componentRestrictions: { country: "us" },
-							fields: ["formatted_address", "geometry", "name"],
-							types: ["address"],
-						}
-					);
+		setInputValue(value || "");
+	}, [value]);
 
-					autoCompleteRef.current.addListener("place_changed", () => {
-						try {
-							const place = autoCompleteRef.current.getPlace();
-							if (place && place.formatted_address) {
-								onChange(place.formatted_address);
-								inputRef.current.blur();
-							} else if (inputRef.current.value) {
-								onChange(inputRef.current.value);
-								inputRef.current.blur();
-							}
-						} catch (error) {
-							console.error("Error handling place selection:", error);
-						}
-					});
+	const handleInputChange = async (event, newInputValue) => {
+		setInputValue(newInputValue);
 
-					const handleKeyDown = (e) => {
-						if (e.key === "Enter" || e.key === "Tab") {
-							e.preventDefault();
-							if (inputRef.current.value) {
-								onChange(inputRef.current.value);
-								inputRef.current.blur();
-								const form = inputRef.current.closest("form");
-								if (form) {
-									const focusableElements = form.querySelectorAll(
-										"button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
-									);
-									const currentIndex = Array.from(focusableElements).indexOf(
-										inputRef.current
-									);
-									if (
-										currentIndex > -1 &&
-										currentIndex < focusableElements.length - 1
-									) {
-										focusableElements[currentIndex + 1].focus();
-									}
-								}
-							}
-						}
-					};
+		if (debounceTimer.current) {
+			clearTimeout(debounceTimer.current);
+		}
 
-					inputRef.current.addEventListener("keydown", handleKeyDown);
+		if (!newInputValue || newInputValue.length < 3) {
+			setOptions([]);
+			return;
+		}
 
-					const handleClickOutside = (event) => {
-						if (inputRef.current && !inputRef.current.contains(event.target)) {
-							inputRef.current.blur();
-						}
-					};
-
-					document.addEventListener("mousedown", handleClickOutside);
-
-					return () => {
-						document.removeEventListener("mousedown", handleClickOutside);
-						if (inputRef.current) {
-							inputRef.current.removeEventListener("keydown", handleKeyDown);
-						}
-					};
-				} catch (error) {
-					console.error("Error initializing autocomplete:", error);
+		debounceTimer.current = setTimeout(async () => {
+			setLoading(true);
+			try {
+				const response = await fetch(
+					`/api/places/autocomplete?input=${encodeURIComponent(newInputValue)}`
+				);
+				const data = await response.json();
+				if (data.predictions) {
+					setOptions(data.predictions);
 				}
+			} catch (error) {
+				console.error("Error searching addresses:", error);
+				setOptions([]);
+			} finally {
+				setLoading(false);
 			}
-		};
+		}, 300);
+	};
 
-		const checkGoogleMapsInterval = setInterval(() => {
-			if (window.google && window.google.maps && window.google.maps.places) {
-				initializeAutocomplete();
-				clearInterval(checkGoogleMapsInterval);
+	const handleChange = async (event, newValue) => {
+		if (!newValue) {
+			onChange("");
+			onCoordinatesChange(null);
+			return;
+		}
+
+		// If newValue is a string, it's a free-form input
+		if (typeof newValue === "string") {
+			setInputValue(newValue);
+			onChange(newValue);
+			return;
+		}
+
+		// If it's an object from the predictions, it has a place_id
+		if (newValue.place_id) {
+			const description = newValue.description;
+			setInputValue(description);
+			onChange(description);
+
+			try {
+				const response = await fetch(
+					`/api/places/details?placeId=${newValue.place_id}`
+				);
+				const data = await response.json();
+
+				if (data.result && data.result.geometry) {
+					const location = data.result.geometry.location;
+					onCoordinatesChange({ lat: location.lat, lon: location.lng });
+				}
+			} catch (error) {
+				console.error("Error fetching place details:", error);
 			}
-		}, 100);
-
-		return () => {
-			clearInterval(checkGoogleMapsInterval);
-		};
-	}, [onChange]);
+		}
+	};
 
 	return (
-		<TextField
-			inputRef={inputRef}
-			label={label}
-			value={value}
-			onChange={(e) => onChange(e.target.value)}
-			onBlur={() => {
-				setTimeout(() => {
-					if (inputRef.current) {
-						onChange(inputRef.current.value);
-					}
-				}, 100);
+		<Autocomplete
+			id={`places-autocomplete-${name}`}
+			freeSolo
+			autoComplete
+			includeInputInList
+			filterSelectedOptions
+			options={options}
+			getOptionLabel={(option) => {
+				if (typeof option === "string") {
+					return option;
+				}
+				return option.description || "";
 			}}
-			fullWidth
-			required
+			value={value}
+			onChange={handleChange}
+			inputValue={inputValue}
+			onInputChange={handleInputChange}
+			loading={loading}
+			loadingText='Searching for addresses...'
+			noOptionsText={
+				inputValue.length < 3
+					? "Type at least 3 characters"
+					: "No addresses found"
+			}
+			renderInput={(params) => (
+				<TextField
+					{...params}
+					label={label}
+					required
+					fullWidth
+					name={name}
+					InputProps={{
+						...params.InputProps,
+						endAdornment: (
+							<>
+								{loading ? (
+									<CircularProgress color='inherit' size={20} />
+								) : null}
+								{params.InputProps.endAdornment}
+							</>
+						),
+					}}
+				/>
+			)}
 		/>
 	);
 };

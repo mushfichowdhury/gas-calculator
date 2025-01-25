@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Box } from "@mui/material";
 
+// Dynamically import MapContainer to avoid SSR issues
 const MapWithNoSSR = dynamic(() => import("./Map"), {
 	ssr: false,
 	loading: () => (
@@ -22,7 +23,7 @@ const MapWithNoSSR = dynamic(() => import("./Map"), {
 	),
 });
 
-const GoogleMap = ({ route }) => {
+const OpenStreetMap = ({ route }) => {
 	return (
 		<Box
 			sx={{
@@ -37,4 +38,4 @@ const GoogleMap = ({ route }) => {
 	);
 };
 
-export default GoogleMap;
+export default OpenStreetMap;

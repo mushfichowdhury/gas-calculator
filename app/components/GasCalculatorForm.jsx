@@ -9,9 +9,14 @@ import {
 	Typography,
 	Alert,
 	Paper,
+	Grid,
 } from "@mui/material";
 import { vehicleDatabase } from "../services/vehicleDatabase";
 import PlacesAutocomplete from "./PlacesAutocomplete";
+import {
+	getRouteWithGoogle,
+	searchAddressWithGoogle,
+} from "../services/geocodingService";
 import DrivingCarLoader from "./DrivingCarLoader";
 
 const GasCalculatorForm = ({ onRouteCalculated }) => {
@@ -21,14 +26,21 @@ const GasCalculatorForm = ({ onRouteCalculated }) => {
 		startLocation: "",
 		endLocation: "",
 	});
+	const [coordinates, setCoordinates] = useState({
+		start: null,
+		end: null,
+	});
 	const [distance, setDistance] = useState(null);
 	const [duration, setDuration] = useState(null);
-	const [gasPrice, setGasPrice] = useState(2.99);
+	const [gasPrice, setGasPrice] = useState("2.99");
 	const [estimatedCost, setEstimatedCost] = useState(null);
 	const [error, setError] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [availableModels, setAvailableModels] = useState([]);
 	const [isCalculated, setIsCalculated] = useState(false);
+	const [startCoordinates, setStartCoordinates] = useState(null);
+	const [endCoordinates, setEndCoordinates] = useState(null);
+	const [route, setRoute] = useState(null);
 
 	useEffect(() => {
 		if (formData.carMake) {
@@ -38,58 +50,6 @@ const GasCalculatorForm = ({ onRouteCalculated }) => {
 			setAvailableModels([]);
 		}
 	}, [formData.carMake]);
-
-	const handleSubmit = async (e) => {
-		e.preventDefault();
-		setLoading(true);
-		setError(null);
-
-		try {
-			const directionsService = new window.google.maps.DirectionsService();
-			const results = await directionsService.route({
-				origin: formData.startLocation,
-				destination: formData.endLocation,
-				travelMode: window.google.maps.TravelMode.DRIVING,
-			});
-
-			const route = results.routes[0];
-			const distanceInMiles = route.legs[0].distance.value / 1609.34;
-			const durationInMinutes = route.legs[0].duration.value / 60;
-
-			setDistance(distanceInMiles.toFixed(1));
-			setDuration(durationInMinutes.toFixed(0));
-
-			const mpg = vehicleDatabase.getMPG(formData.carMake, formData.carModel);
-			const gallonsNeeded = distanceInMiles / mpg;
-			const totalCost = gallonsNeeded * gasPrice;
-
-			setEstimatedCost(totalCost.toFixed(2));
-			onRouteCalculated(results);
-			setIsCalculated(true);
-		} catch (error) {
-			setError(
-				"Error calculating route. Please check your locations and try again."
-			);
-			console.error("Error calculating route:", error);
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	const handleReset = () => {
-		setFormData({
-			carMake: "",
-			carModel: "",
-			startLocation: "",
-			endLocation: "",
-		});
-		setDistance(null);
-		setDuration(null);
-		setEstimatedCost(null);
-		setIsCalculated(false);
-		setGasPrice(3.5);
-		onRouteCalculated(null);
-	};
 
 	const formatDuration = (minutes) => {
 		const hours = Math.floor(minutes / 60);
@@ -108,53 +68,168 @@ const GasCalculatorForm = ({ onRouteCalculated }) => {
 		}
 	};
 
+	const handleSubmit = async (e) => {
+		e.preventDefault();
+		setLoading(true);
+		setError(null);
+
+		try {
+			if (!coordinates.start || !coordinates.end) {
+				throw new Error(
+					"Please select valid locations from the dropdown suggestions"
+				);
+			}
+
+			const routeResult = await getRouteWithGoogle(
+				coordinates.start,
+				coordinates.end
+			);
+
+			setDistance(routeResult.distance.toFixed(1));
+			setDuration(routeResult.duration.toFixed(0));
+
+			const mpg = vehicleDatabase.getMPG(formData.carMake, formData.carModel);
+			const gallonsNeeded = routeResult.distance / mpg;
+			const totalCost = gallonsNeeded * parseFloat(gasPrice);
+
+			setEstimatedCost(totalCost.toFixed(2));
+			onRouteCalculated(routeResult);
+			setIsCalculated(true);
+			setRoute(routeResult);
+		} catch (error) {
+			setError(
+				error.message ||
+					"Error calculating route. Please check your locations and try again."
+			);
+			console.error("Error calculating route:", error);
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const handleReset = () => {
+		setFormData({
+			carMake: "",
+			carModel: "",
+			startLocation: "",
+			endLocation: "",
+		});
+		setCoordinates({
+			start: null,
+			end: null,
+		});
+		setDistance(null);
+		setDuration(null);
+		setEstimatedCost(null);
+		setError(null);
+		setIsCalculated(false);
+		onRouteCalculated(null);
+		setRoute(null);
+	};
+
+	const handleCalculateRoute = async () => {
+		if (startCoordinates && endCoordinates) {
+			try {
+				const routeData = await getRouteWithGoogle(
+					startCoordinates,
+					endCoordinates
+				);
+				setRoute(routeData);
+			} catch (error) {
+				console.error("Error calculating route:", error);
+			}
+		} else {
+			alert("Please select valid coordinates for both locations.");
+		}
+	};
+
+	const handleStartLocationChange = (value, coordinates) => {
+		setFormData((prev) => ({
+			...prev,
+			startLocation: value || prev.startLocation,
+		}));
+		if (coordinates) {
+			setCoordinates((prev) => ({
+				...prev,
+				start: { lat: coordinates.lat, lng: coordinates.lng },
+			}));
+		}
+	};
+
+	const handleEndLocationChange = (value, coordinates) => {
+		setFormData((prev) => ({
+			...prev,
+			endLocation: value || prev.endLocation,
+		}));
+		if (coordinates) {
+			setCoordinates((prev) => ({
+				...prev,
+				end: { lat: coordinates.lat, lng: coordinates.lng },
+			}));
+		}
+	};
+
 	if (isCalculated) {
 		return (
 			<Stack spacing={3}>
 				<Paper elevation={0} sx={{ p: 3, backgroundColor: "primary.light" }}>
-					<Stack spacing={2}>
-						<Typography variant='body1' sx={{ color: "secondary.dark" }}>
-							<Box component='span' sx={{ fontWeight: "bold" }}>
-								VEHICLE:
-							</Box>{" "}
-							{formData.carMake} {formData.carModel}
-						</Typography>
-						<Typography variant='body1' sx={{ color: "secondary.dark" }}>
-							<Box component='span' sx={{ fontWeight: "bold" }}>
-								FROM:
-							</Box>{" "}
-							{formData.startLocation}
-						</Typography>
-						<Typography variant='body1' sx={{ color: "secondary.dark" }}>
-							<Box component='span' sx={{ fontWeight: "bold" }}>
-								TO:
-							</Box>{" "}
-							{formData.endLocation}
-						</Typography>
-						<Typography variant='body1' sx={{ color: "secondary.dark" }}>
-							<Box component='span' sx={{ fontWeight: "bold" }}>
-								DISTANCE:
-							</Box>{" "}
-							{distance} miles
-						</Typography>
-						<Typography variant='body1' sx={{ color: "secondary.dark" }}>
-							<Box component='span' sx={{ fontWeight: "bold" }}>
-								DURATION:
-							</Box>{" "}
-							{formatDuration(duration)}
-						</Typography>
-						<Typography variant='body1' sx={{ color: "secondary.dark" }}>
-							<Box component='span' sx={{ fontWeight: "bold" }}>
-								VEHICLE EFFICIENCY:
-							</Box>{" "}
-							{vehicleDatabase.getMPG(formData.carMake, formData.carModel)} MPG
-						</Typography>
-						<Typography
-							variant='h6'
-							sx={{ color: "primary.dark", fontWeight: "bold" }}>
-							Estimated Gas Cost: ${estimatedCost}
-						</Typography>
-					</Stack>
+					<Grid container spacing={2}>
+						<Grid item xs={12} md={6}>
+							<Stack spacing={2}>
+								<Typography variant='body1' sx={{ color: "secondary.dark" }}>
+									<Box component='span' sx={{ fontWeight: "bold" }}>
+										VEHICLE:
+									</Box>{" "}
+									{formData.carMake} {formData.carModel}
+								</Typography>
+								<Typography variant='body1' sx={{ color: "secondary.dark" }}>
+									<Box component='span' sx={{ fontWeight: "bold" }}>
+										FROM:
+									</Box>{" "}
+									{formData.startLocation}
+								</Typography>
+								<Typography variant='body1' sx={{ color: "secondary.dark" }}>
+									<Box component='span' sx={{ fontWeight: "bold" }}>
+										TO:
+									</Box>{" "}
+									{formData.endLocation}
+								</Typography>
+							</Stack>
+						</Grid>
+						<Grid item xs={12} md={6}>
+							<Stack spacing={2}>
+								<Typography variant='body1' sx={{ color: "secondary.dark" }}>
+									<Box component='span' sx={{ fontWeight: "bold" }}>
+										DISTANCE:
+									</Box>{" "}
+									{distance} miles
+								</Typography>
+								<Typography variant='body1' sx={{ color: "secondary.dark" }}>
+									<Box component='span' sx={{ fontWeight: "bold" }}>
+										DURATION:
+									</Box>{" "}
+									{formatDuration(duration)}
+								</Typography>
+								<Typography variant='body1' sx={{ color: "secondary.dark" }}>
+									<Box component='span' sx={{ fontWeight: "bold" }}>
+										VEHICLE EFFICIENCY:
+									</Box>{" "}
+									{vehicleDatabase.getMPG(formData.carMake, formData.carModel)}{" "}
+									MPG
+								</Typography>
+							</Stack>
+						</Grid>
+					</Grid>
+					<Typography
+						variant='h6'
+						sx={{
+							color: "primary.dark",
+							fontWeight: "bold",
+							mt: 3,
+							textAlign: "center",
+						}}>
+						Estimated Gas Cost: ${estimatedCost}
+					</Typography>
 				</Paper>
 
 				<Button
@@ -169,98 +244,252 @@ const GasCalculatorForm = ({ onRouteCalculated }) => {
 	}
 
 	return (
-		<Box component='form' onSubmit={handleSubmit}>
-			<Stack spacing={3}>
-				{error && <Alert severity='error'>{error}</Alert>}
-
-				<Autocomplete
-					options={vehicleDatabase.makes}
-					renderInput={(params) => (
-						<TextField {...params} label='Car Make' required />
-					)}
-					onChange={(_, newValue) => {
-						setFormData((prev) => ({
-							...prev,
-							carMake: newValue,
-							carModel: "",
-						}));
-					}}
-				/>
-
-				<Autocomplete
-					options={availableModels}
-					renderInput={(params) => (
-						<TextField {...params} label='Car Model' required />
-					)}
-					onChange={(_, newValue) =>
-						setFormData((prev) => ({ ...prev, carModel: newValue }))
-					}
-					disabled={!formData.carMake}
-				/>
-
-				<PlacesAutocomplete
-					label='Starting Location'
-					value={formData.startLocation}
-					onChange={(value) =>
-						setFormData((prev) => ({ ...prev, startLocation: value }))
-					}
-				/>
-
-				<PlacesAutocomplete
-					label='Destination'
-					value={formData.endLocation}
-					onChange={(value) =>
-						setFormData((prev) => ({ ...prev, endLocation: value }))
-					}
-				/>
-
-				<TextField
-					label='Gas Price per Gallon'
-					type='number'
-					value={gasPrice}
-					onChange={(e) => {
-						const value = e.target.value;
-						if (value === "") {
-							setGasPrice("");
-						} else {
-							const numValue = parseFloat(value);
-							if (!isNaN(numValue)) {
-								setGasPrice(value);
+		<Box component='form' onSubmit={handleSubmit} noValidate>
+			<Grid container spacing={3}>
+				{/* Desktop View */}
+				<Grid item xs={12} md={6} sx={{ display: { xs: "none", md: "block" } }}>
+					<Stack spacing={3}>
+						<Autocomplete
+							options={vehicleDatabase.makes}
+							value={formData.carMake}
+							renderInput={(params) => (
+								<TextField
+									{...params}
+									label='Car Make'
+									required
+									name='carMake'
+									value={formData.carMake || ""}
+								/>
+							)}
+							onChange={(_, newValue) => {
+								setFormData((prev) => ({
+									...prev,
+									carMake: newValue,
+									carModel: "",
+								}));
+							}}
+						/>
+						<PlacesAutocomplete
+							label='Starting Location'
+							value={formData.startLocation}
+							onChange={(value) => handleStartLocationChange(value, null)}
+							onCoordinatesChange={(coords) =>
+								handleStartLocationChange(formData.startLocation, coords)
 							}
-						}
-					}}
-					onBlur={(e) => {
-						const value = parseFloat(gasPrice);
-						if (!isNaN(value)) {
-							setGasPrice(
-								Math.max(0.01, Math.min(9.99, Number(value.toFixed(2))))
-							);
-						} else {
-							setGasPrice(2.99);
-						}
-					}}
-					inputProps={{
-						step: "0.01",
-						min: "0.01",
-						max: "9.99",
-					}}
-					InputProps={{
-						startAdornment: <span>$</span>,
-					}}
-				/>
+							name='startLocation'
+						/>
+						<TextField
+							label='Gas Price per Gallon'
+							type='number'
+							value={gasPrice}
+							name='gasPrice'
+							required
+							onChange={(e) => {
+								const value = e.target.value;
+								if (value === "") {
+									setGasPrice("");
+								} else {
+									const numValue = parseFloat(value);
+									if (!isNaN(numValue)) {
+										setGasPrice(value);
+									}
+								}
+							}}
+							onBlur={() => {
+								const value = parseFloat(gasPrice);
+								if (!isNaN(value)) {
+									setGasPrice(
+										Math.max(0.01, Math.min(9.99, Number(value.toFixed(2))))
+									);
+								} else {
+									setGasPrice("2.99");
+								}
+							}}
+							inputProps={{
+								step: "0.01",
+								min: "0.01",
+								max: "9.99",
+							}}
+							InputProps={{
+								startAdornment: <span>$</span>,
+							}}
+						/>
+					</Stack>
+				</Grid>
+				<Grid item xs={12} md={6} sx={{ display: { xs: "none", md: "block" } }}>
+					<Stack spacing={3}>
+						<Autocomplete
+							options={availableModels}
+							value={formData.carModel}
+							renderInput={(params) => (
+								<TextField
+									{...params}
+									label='Car Model'
+									required
+									name='carModel'
+									value={formData.carModel || ""}
+								/>
+							)}
+							onChange={(_, newValue) =>
+								setFormData((prev) => ({ ...prev, carModel: newValue }))
+							}
+							disabled={!formData.carMake}
+						/>
+						<PlacesAutocomplete
+							label='Destination'
+							value={formData.endLocation}
+							onChange={(value) => handleEndLocationChange(value, null)}
+							onCoordinatesChange={(coords) =>
+								handleEndLocationChange(formData.endLocation, coords)
+							}
+							name='endLocation'
+						/>
+						<Button
+							variant='contained'
+							type='submit'
+							size='large'
+							disabled={loading}
+							sx={{
+								height: "56px",
+								"& .MuiButton-startIcon": {
+									marginRight: 0,
+								},
+								position: "relative",
+								textTransform: "uppercase",
+								fontSize: "1rem",
+								boxShadow: "none",
+								"&:hover": {
+									boxShadow: "none",
+								},
+							}}>
+							{loading ? <DrivingCarLoader /> : "Calculate Route"}
+						</Button>
+					</Stack>
+				</Grid>
 
-				<Button
-					variant='contained'
-					type='submit'
-					size='large'
-					disabled={loading}
-					sx={{
-						minHeight: "48px",
-						position: "relative",
-					}}>
-					{loading ? <DrivingCarLoader /> : "Calculate Route"}
-				</Button>
-			</Stack>
+				{/* Mobile View */}
+				<Grid item xs={12} sx={{ display: { xs: "block", md: "none" } }}>
+					<Stack spacing={3}>
+						<Autocomplete
+							options={vehicleDatabase.makes}
+							value={formData.carMake}
+							renderInput={(params) => (
+								<TextField
+									{...params}
+									label='Car Make'
+									required
+									name='carMake'
+									value={formData.carMake || ""}
+								/>
+							)}
+							onChange={(_, newValue) => {
+								setFormData((prev) => ({
+									...prev,
+									carMake: newValue,
+									carModel: "",
+								}));
+							}}
+						/>
+						<Autocomplete
+							options={availableModels}
+							value={formData.carModel}
+							renderInput={(params) => (
+								<TextField
+									{...params}
+									label='Car Model'
+									required
+									name='carModel'
+									value={formData.carModel || ""}
+								/>
+							)}
+							onChange={(_, newValue) =>
+								setFormData((prev) => ({ ...prev, carModel: newValue }))
+							}
+							disabled={!formData.carMake}
+						/>
+						<PlacesAutocomplete
+							label='Starting Location'
+							value={formData.startLocation}
+							onChange={(value) => handleStartLocationChange(value, null)}
+							onCoordinatesChange={(coords) =>
+								handleStartLocationChange(formData.startLocation, coords)
+							}
+							name='startLocation'
+						/>
+						<PlacesAutocomplete
+							label='Destination'
+							value={formData.endLocation}
+							onChange={(value) => handleEndLocationChange(value, null)}
+							onCoordinatesChange={(coords) =>
+								handleEndLocationChange(formData.endLocation, coords)
+							}
+							name='endLocation'
+						/>
+						<TextField
+							label='Gas Price per Gallon'
+							type='number'
+							value={gasPrice}
+							name='gasPrice'
+							required
+							onChange={(e) => {
+								const value = e.target.value;
+								if (value === "") {
+									setGasPrice("");
+								} else {
+									const numValue = parseFloat(value);
+									if (!isNaN(numValue)) {
+										setGasPrice(value);
+									}
+								}
+							}}
+							onBlur={() => {
+								const value = parseFloat(gasPrice);
+								if (!isNaN(value)) {
+									setGasPrice(
+										Math.max(0.01, Math.min(9.99, Number(value.toFixed(2))))
+									);
+								} else {
+									setGasPrice("2.99");
+								}
+							}}
+							inputProps={{
+								step: "0.01",
+								min: "0.01",
+								max: "9.99",
+							}}
+							InputProps={{
+								startAdornment: <span>$</span>,
+							}}
+						/>
+						<Button
+							variant='contained'
+							type='submit'
+							size='large'
+							disabled={loading}
+							sx={{
+								height: "56px",
+								"& .MuiButton-startIcon": {
+									marginRight: 0,
+								},
+								position: "relative",
+								textTransform: "uppercase",
+								fontSize: "1rem",
+								boxShadow: "none",
+								"&:hover": {
+									boxShadow: "none",
+								},
+							}}>
+							{loading ? <DrivingCarLoader /> : "Calculate Route"}
+						</Button>
+					</Stack>
+				</Grid>
+
+				{error && (
+					<Grid item xs={12}>
+						<Alert severity='error'>{error}</Alert>
+					</Grid>
+				)}
+			</Grid>
 		</Box>
 	);
 };
