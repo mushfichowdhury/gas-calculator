@@ -2,6 +2,8 @@
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { Space_Grotesk } from "next/font/google";
+import { APIProvider } from "@vis.gl/react-google-maps";
+import { GOOGLE_MAPS_API_KEY } from "./config/maps";
 
 const spaceGrotesk = Space_Grotesk({
 	subsets: ["latin"],
@@ -107,9 +109,11 @@ const theme = createTheme({
 
 export function Providers({ children }) {
 	return (
-		<ThemeProvider theme={theme}>
-			<CssBaseline />
-			{children}
-		</ThemeProvider>
+		<APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
+			<ThemeProvider theme={theme}>
+				<CssBaseline />
+				{children}
+			</ThemeProvider>
+		</APIProvider>
 	);
 }

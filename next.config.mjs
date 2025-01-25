@@ -12,7 +12,7 @@ const nextConfig = {
 	 *
 	 * @see https://nextjs.org/docs/app/api-reference/next-config-js/basePath
 	 */
-	basePath: "/gas-calculator",
+	// basePath: "/gas-calculator",
 
 	/**
 	 * Disable server-based image optimization. Next.js does not support
